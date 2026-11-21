@@ -1,0 +1,126 @@
+diff --git a/crates/codex-plus-core/assets/remote-control/index.html b/crates/codex-plus-core/assets/remote-control/index.html
+--- a/crates/codex-plus-core/assets/remote-control/index.html
++++ b/crates/codex-plus-core/assets/remote-control/index.html
+@@ -366,6 +366,10 @@
+   .m-bubble pre, .m-bubble code { font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
+   .m-bubble pre { margin: 6px 0; padding: 8px 10px; border-radius: 5px; overflow-x: auto; white-space: pre; background: color-mix(in srgb, var(--m-text) 7%, transparent); }
+   .m-bubble code { padding: 0 3px; border-radius: 3px; background: color-mix(in srgb, var(--m-text) 8%, transparent); }
++  .m-answer { min-width: 0; }
++  .m-answer .cx-agent { white-space: normal; overflow-wrap: anywhere; }
++  .m-answer .cx-agent li, .m-answer .cx-agent blockquote { white-space: pre-wrap; }
++  .m-answer .m-citation { margin-inline-start: .4em; font-size: .75em; color: var(--m-sub); }
+   .m-bubble.typing { display: flex; gap: 5px; align-items: center; padding: 14px 14px; }
+   .m-bubble.typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--m-sub); animation: m-dot 1.2s infinite ease-in-out; }
+   .m-bubble.typing i:nth-child(2) { animation-delay: .15s; } .m-bubble.typing i:nth-child(3) { animation-delay: .3s; }
+@@ -1205,15 +1209,16 @@
+ 
+   // ---------- Codex 样式：消息 ----------
+   /** 助手回复按 Markdown 显示：代码块、标题、列表、引用、行内代码、粗体、链接。只建 DOM，不解析 HTML。 */
+-  function markdown(text) {
++  function markdown(text, citationFallback = false) {
+     const root = el("div", "cx-agent");
++    const format = (node, line) => inline(node, line, citationFallback);
+     const lines = String(text || "").replace(/\r\n/g, "\n").split("\n");
+     const bulletPattern = /^\s*([-*+]|\d+[.)])\s+(.*)$/;
+     let para = [];
+     const flush = () => {
+       if (!para.length) return;
+       const p = el("p");
+-      inline(p, para.join("\n"));
++      format(p, para.join("\n"));
+       root.append(p);
+       para = [];
+     };
+@@ -1235,7 +1240,7 @@
+       if (heading) {
+         flush();
+         const node = el(`h${Math.min(heading[1].length + 2, 5)}`);
+-        inline(node, heading[2]);
++        format(node, heading[2]);
+         root.append(node);
+         i += 1;
+         continue;
+@@ -1251,12 +1256,12 @@
+           const item = lines[i].match(bulletPattern);
+           if (item && /\d/.test(item[1]) === ordered) {
+             const li = el("li");
+-            inline(li, item[2]);
++            format(li, item[2]);
+             list.append(li);
+             i += 1;
+           } else if (lines[i].trim() && /^\s{2,}/.test(lines[i]) && list.lastChild) {
+             list.lastChild.append(document.createElement("br"));
+-            inline(list.lastChild, lines[i].trim());
++            format(list.lastChild, lines[i].trim());
+             i += 1;
+           } else break;
+         }
+@@ -1268,7 +1273,7 @@
+         const buffer = [];
+         while (i < lines.length && lines[i].startsWith(">")) buffer.push(lines[i++].replace(/^>\s?/, ""));
+         const quote = el("blockquote");
+-        inline(quote, buffer.join("\n"));
++        format(quote, buffer.join("\n"));
+         root.append(quote);
+         continue;
+       }
+@@ -1280,13 +1285,32 @@
+     return root;
+   }
+ 
+-  function inline(node, text) {
++  // Chat has raw citation IDs but no URL mapping. Never turn the IDs into links.
++  function citationText(node, text, trailing = false) {
++    const marker = /\uE200cite\uE202turn[\w-]+(?:\uE202turn[\w-]+)*\uE201/g;
++    let last = 0;
++    for (let match; (match = marker.exec(text));) {
++      node.append(text.slice(last, match.index), el("span", "m-citation", "来源请在电脑端查看"));
++      last = marker.lastIndex;
++    }
++    const rest = text.slice(last);
++    // A streaming update can end between the opening and closing citation glyphs.
++    node.append(trailing ? rest.replace(/\uE200(?:c(?:i(?:t(?:e(?:\uE202[\w\uE202-]*)?)?)?)?)?$/, "") : rest);
++  }
++
++  function inline(node, text, citationFallback = false) {
++    const append = (str, trailing = false) => citationFallback ? citationText(node, str, trailing) : node.append(str);
+     const pattern = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g;
+     let last = 0;
+     for (let match; (match = pattern.exec(text));) {
+-      if (match.index > last) node.append(text.slice(last, match.index));
++      if (match.index > last) append(text.slice(last, match.index));
+       if (match[1]) node.append(el("code", "", match[1].slice(1, -1)));
+-      else if (match[2]) node.append(el("strong", "", match[2].slice(2, -2)));
++      else if (match[2]) {
++        const strong = el("strong");
++        if (citationFallback) citationText(strong, match[2].slice(2, -2));
++        else strong.textContent = match[2].slice(2, -2);
++        node.append(strong);
++      }
+       else {
+         const link = el("a", "", match[3]);
+         link.href = match[4];
+@@ -1296,7 +1320,7 @@
+       }
+       last = pattern.lastIndex;
+     }
+-    if (last < text.length) node.append(text.slice(last));
++    if (last < text.length) append(text.slice(last), true);
+   }
+ 
+   /** 去掉外层的 `zsh -lc '…'`，和 Codex 一样只显示里面那条命令。 */
+@@ -2536,7 +2560,13 @@
+             if (item.text || !(item.attachments || []).length) nodes.push(msgNode("out", textBubble(item.text)));
+             break;
+           case "steeringUserMessage": nodes.push(msgNode("out", textBubble(item.text, "插话"))); break;
+-          case "agentMessage": if (item.text) nodes.push(msgNode("in", textBubble(item.text))); break;
++          case "agentMessage":
++            if (item.text) {
++              const bubble = el("div", "m-bubble m-answer");
++              bubble.append(markdown(item.text, true));
++              nodes.push(msgNode("in", bubble));
++            }
++            break;
+           case "commandExecution": nodes.push(msgNode("in", commandCard(item))); break;
+           case "fileChange": nodes.push(msgNode("in", fileCard(item))); break;
+           case "userInputResponse": nodes.push(el("div", "m-tip", "已回答提问")); break;
