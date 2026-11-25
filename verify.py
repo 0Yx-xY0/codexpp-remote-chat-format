@@ -5,8 +5,10 @@ from playwright.sync_api import sync_playwright
 
 path = Path(sys.argv[1])
 html = path.read_text(encoding='utf-8')
-start = '  if (pairCode && !token) {'
-assert html.count(start) == 1, 'unexpected boot sequence'
+markers = ['pairCode&&!token', '  if (pairCode && !token) {']
+starts = [marker for marker in markers if html.count(marker) == 1]
+assert len(starts) == 1, 'unexpected boot sequence'
+start = starts[0]
 head = html[:html.rindex(start)]
 fixture = '''
   state.current = 'fixture';

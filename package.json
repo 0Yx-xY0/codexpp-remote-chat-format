@@ -1,0 +1,13 @@
+{
+  "name": "codexpp-remote-chat-format",
+  "private": true,
+  "scripts": {
+    "test": "node verify-all.cjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}
